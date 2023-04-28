@@ -1,0 +1,75 @@
+name: Build and Deploy Docs
+on:
+  push:
+    branches:
+      - master
+      - main
+permissions:
+  contents: write
+jobs:
+  build-and-deploy:
+    concurrency: ci-${{ github.ref }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout 🛎️
+        uses: actions/checkout@v3
+
+      - name: Install pandoc
+        run: sudo apt-get update && sudo apt-get install pandoc
+
+      - uses: actions/setup-node@v3
+        with:
+          node-version: 18.x
+
+      - name: Install styling
+        run: npm install github-markdown-css
+
+      - name: Build 🔧
+        run: |
+          #!/bin/bash
+
+          mkdir dist
+          touch dist/.nojekyll
+          mv node_modules/github-markdown-css/github-markdown.css docs/github-markdown.css
+          cp docs/*.css dist/
+          if [ -d "docs/img/" ]; then
+            cp -r docs/img/ dist/img/
+          fi
+
+          for file in docs/*.md; do
+            name=$(basename "$file" .md)
+            pandoc "$file" -f markdown -t html -o "dist/$name.html"
+          done
+
+          for file in dist/*.html; do
+            name=$(basename "$file" .html)
+            content=$(cat "$file")
+
+            echo -e "<!DOCTYPE html>
+            <html lang=\"en\">
+              <head>
+                <meta charset=\"UTF-8\">
+                <meta http-equiv=\"X-UA-Compatible\" content=\"IE=edge\">
+                <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">
+                <title>Docs</title>
+                $(for cssfile in dist/*.css; do
+                    cssname=$(basename "$cssfile")
+                    if [[ "$cssname" != "github-markdown.css" && "$cssname" != "style.css" ]]; then
+                      echo "<link rel=\"stylesheet\" href=\"./$cssname\">"
+                    fi
+                  done)
+                <link rel=\"stylesheet\" href=\"./github-markdown.css\">
+                <link rel=\"stylesheet\" href=\"./style.css\">
+              </head>
+
+              <body class=\"markdown-body\">
+              ${content}
+              </body>
+            </html>" > "dist/$name.html"
+          done
+
+      - name: Deploy 🚀
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          folder: dist
+          branch: docs
